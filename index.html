@@ -344,7 +344,7 @@ Composite.add(engine.world, [
 function makeBody(level, x, y, startScale = 1) {
   const L = LEVELS[level];
   const b = Bodies.fromVertices(x, y, [L.verts], {
-    restitution: 0.2, friction: 0.001, frictionStatic: 0.01, frictionAir: 0.004,
+    restitution: 0.2, friction: 0.0012, frictionStatic: 0.01, frictionAir: 0.004,
     density: 0.0012, slop: 0.03,
   });
   b.plugin = { level, born: time, merged: false, s: 1 };
