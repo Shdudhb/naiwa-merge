@@ -557,7 +557,42 @@ function gameOver() {
   $('finalScore').textContent = score;
   $('finalSub').textContent = score > bestAtStart && score > 0 ? '新紀錄！' : `最高分 ${best}`;
   overTimer = setTimeout(() => $('over').classList.add('show'), 600);
+  saveGame();
 }
+
+// ---- 存檔：重新整理或關掉再開，可以接著玩 ----
+const SAVE_KEY = 'naiwa-save';
+const SAVE_VER = LEVELS.map(L => L.file).join();   // 角色有增減就不要讀舊存檔
+const r1 = v => Math.round(v * 10) / 10;
+function saveGame() {
+  try {
+    if (over) { localStorage.removeItem(SAVE_KEY); return; }
+    const pieces = allPieces().filter(b => !b.plugin.merged).map(b =>
+      [b.plugin.level, r1(b.position.x), r1(b.position.y), r1(b.angle * 100) / 100, r1(b.plugin.s), r1(Math.min(5, time - b.plugin.born))]);
+    // 超線倒數和角色的落地時間也存起來，不然重新整理一次就能把快輸的倒數歸零
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ ver: SAVE_VER, score, current, next, topLevel, bestAtStart, dangerTime: r1(dangerTime), pieces }));
+  } catch (e) {}
+}
+function loadGame() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (!s || s.ver !== SAVE_VER) return;
+    const ok = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
+    if (!ok(s.current, MAX_DROP_LEVEL) || !ok(s.next, MAX_DROP_LEVEL) || !ok(s.topLevel, LEVELS.length - 1) ||
+        !s.pieces.every(p => ok(p[0], LEVELS.length - 1) && p.slice(1).every(Number.isFinite))) return;
+    for (const [level, x, y, angle, sc, age] of s.pieces) {
+      const b = makeBody(level, x, y, Math.min(1, sc || 1));
+      Body.setAngle(b, angle);
+      b.plugin.born = time - (age || 0);
+    }
+    ({ score, current, next, topLevel, bestAtStart } = s);
+    dangerTime = Math.max(0, +s.dangerTime || 0);
+    updateHud();
+  } catch (e) { reset(); }   // 存檔壞掉就開新局，不要留下讀到一半的盤面
+}
+setInterval(() => { if (!loading) saveGame(); }, 1000);
+addEventListener('pagehide', saveGame);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
 
 // ---- 繪製 ----
 let debug = false;
@@ -736,6 +771,7 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 reset();
+loadGame();
 resize();
 requestAnimationFrame(loop);
 
