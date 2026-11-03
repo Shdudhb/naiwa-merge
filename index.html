@@ -180,9 +180,51 @@
     background: var(--accent); box-shadow: 0 5px 0 #c86a00;
   }
   .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #c86a00; }
+
+  /* 載入畫面：和遊戲同一面牆和桌子；角色一隻隻載好就跳進格子裡 */
+  .loading {
+    position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 24px;
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,.22) 0 26px, transparent 26px 52px),
+      linear-gradient(180deg, #fde8c4, #f6c98a);
+    transition: opacity .45s, transform .45s;
+  }
+  .loading::after {   /* 桌面 */
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 16%;
+    background:
+      linear-gradient(180deg, #f0b878 0 10px, #c98a4e 10px 13px, transparent 13px),
+      linear-gradient(180deg, #d99a5c, #a8662f);
+  }
+  .loading.done { opacity: 0; transform: scale(1.04); pointer-events: none; }
+  .loading .card { position: relative; z-index: 1; text-align: center; width: min(320px, 100%); margin-bottom: 8vh; }
+
+  .loading h1 {
+    margin: 0 0 28px; font: 900 38px/1.1 "Noto Sans TC", system-ui, sans-serif; letter-spacing: 3px; color: #fff;
+    text-shadow:   /* 白字加橘色描邊和立體厚度 */
+      2px 0 0 var(--accent), -2px 0 0 var(--accent), 0 2px 0 var(--accent), 0 -2px 0 var(--accent),
+      2px 2px 0 var(--accent), -2px 2px 0 var(--accent), 2px -2px 0 var(--accent), -2px -2px 0 var(--accent),
+      0 6px 0 #c86a00, 0 10px 16px rgba(140, 80, 20, .3);
+  }
+
+  .loading .spinner {
+    width: 64px; height: 64px; margin: 0 auto; border-radius: 50%;
+    border: 7px solid rgba(255, 252, 244, .85); border-top-color: var(--accent);
+    box-shadow: 0 4px 0 rgba(200, 130, 60, .25);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading .status { margin-top: 14px; font: 600 15px var(--num); color: var(--label); }
+  .loading .tip { margin: 22px 0 0; font-size: 13px; font-weight: 700; color: var(--ink); opacity: .7; }
 </style>
 </head>
 <body>
+<div class="loading" id="loading"><div class="card">
+  <h1>合成大奶娃</h1>
+  <div class="spinner"></div>
+  <div class="status" id="loadText">0%</div>
+  <p class="tip" id="loadTip"></p>
+</div></div>
+
 <div class="table"></div>
 
 <div class="layout">
@@ -261,8 +303,27 @@ for (const L of LEVELS) {
   L.w = S.w * L.scale; L.h = S.h * L.scale;
   const xs = L.verts.map(p => p.x - L.centre.x);
   L.minX = Math.min(...xs); L.maxX = Math.max(...xs);
-  L.img = new Image(); L.img.src = `assets/${L.file}.png`;
 }
+
+// ---- 載入圖片：全部載好才關掉載入畫面 ----
+let loading = true;
+const TIPS = ['兩隻一樣的奶家人碰在一起就會合成', '角色超出盒子太久就輸了', '把大的往旁邊推，中間留給小的', '兩隻奶娃合在一起有大獎'];
+$('loadTip').textContent = '小提示：' + TIPS[Math.floor(Math.random() * TIPS.length)];
+let loadedCount = 0;
+const loaded = Promise.all(LEVELS.map(L => new Promise(done => {
+  L.img = new Image();
+  L.img.onload = L.img.onerror = done;   // 載入失敗也算完成，不要卡在載入畫面
+  L.img.src = `assets/${L.file}.png`;
+}).then(() => {
+  loadedCount++;
+  $('loadText').textContent = Math.round(loadedCount / LEVELS.length * 100) + '%';
+})));
+// 有快取時一下就載完，至少停留一下，不要閃一下就不見
+Promise.all([loaded, new Promise(r => setTimeout(r, 900))]).then(() => {
+  loading = false;
+  last = performance.now();
+  $('loading').classList.add('done');
+});
 
 $('evo').innerHTML = LEVELS.map(l =>
   `<div class="step"><img src="assets/${l.file}.png" alt="${l.name}"><span>${l.name}</span></div>`).join('');
@@ -399,7 +460,7 @@ function clampX(level, x) {
 }
 
 function drop() {
-  if (over || cooldown > 0) return;
+  if (loading || over || cooldown > 0) return;
   makeBody(current, clampX(current, aimX), DROP_Y);
   current = next; next = randLevel();
   cooldown = 0.5;
@@ -669,7 +730,7 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(1 / 30, (now - last) / 1000);
   last = now;
-  update(dt);
+  if (!loading) update(dt);
   draw();
   requestAnimationFrame(loop);
 }
