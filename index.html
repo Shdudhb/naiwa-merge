@@ -180,6 +180,15 @@
     background: var(--accent); box-shadow: 0 5px 0 #c86a00;
   }
   .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #c86a00; }
+  .btn small { display: block; margin-top: 2px; font-size: 12px; font-weight: 700; opacity: .9; }
+  .btn.hard { background: #ef4444; box-shadow: 0 5px 0 #b42323; }
+  .btn.hard:active { box-shadow: 0 2px 0 #b42323; }
+  .btn.cur { outline: 3px solid #fff; outline-offset: -6px; }
+  .modes { display: grid; gap: 14px; }
+  .link {
+    margin-top: 12px; padding: 6px 14px; border: 0; background: none; cursor: pointer;
+    font: 700 14px "Noto Sans TC", system-ui, sans-serif; color: var(--label);
+  }
 
   /* 載入畫面：和遊戲同一面牆和桌子；角色一隻隻載好就跳進格子裡 */
   .loading {
@@ -256,6 +265,17 @@
   <div class="final" id="finalScore">0</div>
   <div class="sub" id="finalSub">最高分 0</div>
   <button class="btn" id="restart">再玩一次</button>
+  <button class="link" id="changeMode">換難度</button>
+</div></div>
+
+<div class="modal" id="modes"><div class="card">
+  <h2>重新開始</h2>
+  <div class="sub">選一個難度開新局</div>
+  <div class="modes">
+    <button class="btn" data-mode="normal">普通<small>最大丟出奶鼠</small></button>
+    <button class="btn hard" data-mode="hard">困難<small>角色大一點，還會丟出奶貓</small></button>
+  </div>
+  <button class="link" id="modeCancel">取消</button>
 </div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
@@ -276,7 +296,12 @@ const LEVELS = [
   { name: '奶粉', file: 'fen', size: 227 },
   { name: '奶娃', file: 'wa',  size: 256 },
 ];
-const MAX_DROP_LEVEL = 3;
+// 難度：weights 是丟出各等級的機率比重（長度決定最大會丟出哪一級）
+// overMargin：角色要超出線這麼多才開始倒數，擦到線不算；overTime：超出線持續幾秒才輸；sizeK：角色大小倍率
+const MODES = {
+  normal: { name: '普通', weights: [5, 4, 3, 2], overMargin: 30, overTime: 3, sizeK: 1, bestKey: 'naiwa-best' },
+  hard:   { name: '困難', weights: [3, 3, 3, 2, 1], overMargin: 30, overTime: 3, sizeK: 1.08, bestKey: 'naiwa-best-hard' },
+};
 const MERGE_SCORE = [0, 2, 4, 6, 12, 20, 30, 42, 56, 72];
 const WAWA_BONUS = 300;
 const PARTICLE_COLORS = ['#ffe25c', '#ffc93c', '#fff08a', '#ffb39a', '#ffe08a', '#ff9b5c', '#a3c96b', '#e8b46a', '#ff9fb8', '#ffbf2e'];
@@ -284,8 +309,6 @@ const PARTICLE_COLORS = ['#ffe25c', '#ffc93c', '#fff08a', '#ffb39a', '#ffe08a', 
 // 世界座標：盒子內部 x 0..W、y BOX_TOP..H；畫布左右各多留 PAD 畫玻璃壁
 const W = 400, H = 760;
 const BOX_TOP = 160, DROP_Y = 88, DANGER_Y = BOX_TOP;
-const OVER_MARGIN = 30;   // 角色要超出線這麼多才開始倒數，擦到線不算
-const OVER_TIME = 3;      // 超出線持續幾秒才輸
 const PAD = 22, CW = W + PAD * 2, CH = H + 24;
 const STEP_MS = 1000 / 120;
 
@@ -293,18 +316,21 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const $ = id => document.getElementById(id);
 
-// ---- 每個等級的形狀：把凸包縮放到指定大小，並記下重心位置 ----
-for (const L of LEVELS) {
-  const S = SHAPES[L.file];
-  const pts = S.hull.map(([x, y]) => ({ x, y }));
-  const area = Math.abs(Vertices.area(pts, true));
-  L.scale = L.size / (2 * Math.sqrt(area / Math.PI));
-  L.verts = pts.map(p => ({ x: p.x * L.scale, y: p.y * L.scale }));
-  L.centre = Vertices.centre(L.verts);
-  L.w = S.w * L.scale; L.h = S.h * L.scale;
-  const xs = L.verts.map(p => p.x - L.centre.x);
-  L.minX = Math.min(...xs); L.maxX = Math.max(...xs);
+// ---- 每個等級的形狀：把凸包縮放到指定大小，並記下重心位置（換難度時會用新的大小倍率重算） ----
+function applySizes(k) {
+  for (const L of LEVELS) {
+    const S = SHAPES[L.file];
+    const pts = S.hull.map(([x, y]) => ({ x, y }));
+    const area = Math.abs(Vertices.area(pts, true));
+    L.scale = L.size * k / (2 * Math.sqrt(area / Math.PI));
+    L.verts = pts.map(p => ({ x: p.x * L.scale, y: p.y * L.scale }));
+    L.centre = Vertices.centre(L.verts);
+    L.w = S.w * L.scale; L.h = S.h * L.scale;
+    const xs = L.verts.map(p => p.x - L.centre.x);
+    L.minX = Math.min(...xs); L.maxX = Math.max(...xs);
+  }
 }
+applySizes(1);
 
 // ---- 載入圖片：全部載好才關掉載入畫面 ----
 let loading = true;
@@ -419,13 +445,21 @@ const allPieces = () => Composite.allBodies(engine.world).filter(b => b.plugin &
 
 // ---- 遊戲狀態 ----
 let particles, texts, score, current, next, aimX, cooldown, dangerTime, over, time, banner, mergeQueue, topLevel, acc;
-let bestAtStart = 0, overTimer = 0;
-let best = 0;
-try { best = +localStorage.getItem('naiwa-best') || 0; } catch (e) {}
-$('best').textContent = best;
+let bestAtStart = 0, overTimer = 0, paused = false;
+let best = 0, mode = 'normal';
+
+// 換難度：最高分分開記
+function setMode(m) {
+  mode = MODES[m] ? m : 'normal';
+  applySizes(MODES[mode].sizeK);   // 盤面上的角色不會跟著變，所以換難度後一定要開新局或讀存檔
+  best = 0;
+  try { localStorage.setItem('naiwa-mode', mode); best = +localStorage.getItem(MODES[mode].bestKey) || 0; } catch (e) {}
+  $('best').textContent = best;
+}
+try { setMode(localStorage.getItem('naiwa-mode')); } catch (e) { setMode('normal'); }
 
 function randLevel() {
-  const w = [5, 4, 3, 2].slice(0, MAX_DROP_LEVEL + 1);
+  const w = MODES[mode].weights;
   let n = Math.random() * w.reduce((a, b) => a + b);
   for (let i = 0; i < w.length; i++) if ((n -= w[i]) < 0) return i;
   return 0;
@@ -451,7 +485,7 @@ function updateHud(bump) {
   evoSteps.forEach((s, i) => { s.classList.toggle('locked', i > topLevel); s.classList.toggle('top', i === topLevel); });
   if (score > best) {
     best = score; $('best').textContent = best;
-    try { localStorage.setItem('naiwa-best', best); } catch (e) {}
+    try { localStorage.setItem(MODES[mode].bestKey, best); } catch (e) {}
   }
 }
 
@@ -461,7 +495,7 @@ function clampX(level, x) {
 }
 
 function drop() {
-  if (loading || over || cooldown > 0) return;
+  if (loading || paused || over || cooldown > 0) return;
   makeBody(current, clampX(current, aimX), DROP_Y);
   current = next; next = randLevel();
   cooldown = 0.5;
@@ -539,9 +573,10 @@ function update(dt) {
   if (!over) {
     cooldown = Math.max(0, cooldown - dt);
     step(dt);
-    const danger = allPieces().some(b => time - b.plugin.born > 1.2 && b.bounds.min.y < DANGER_Y - OVER_MARGIN && b.speed < 2);
+    const M = MODES[mode];
+    const danger = allPieces().some(b => time - b.plugin.born > 1.2 && b.bounds.min.y < DANGER_Y - M.overMargin && b.speed < 2);
     dangerTime = danger ? dangerTime + dt : Math.max(0, dangerTime - dt * 2);
-    if (dangerTime > OVER_TIME) gameOver();
+    if (dangerTime > M.overTime) gameOver();
   } else {
     step(dt * 0.4);
   }
@@ -555,7 +590,8 @@ function update(dt) {
 function gameOver() {
   over = true;
   $('finalScore').textContent = score;
-  $('finalSub').textContent = score > bestAtStart && score > 0 ? '新紀錄！' : `最高分 ${best}`;
+  const tag = mode === 'hard' ? MODES[mode].name : '';
+  $('finalSub').textContent = score > bestAtStart && score > 0 ? tag + '新紀錄！' : `${tag}最高分 ${best}`;
   overTimer = setTimeout(() => $('over').classList.add('show'), 600);
   saveGame();
 }
@@ -570,16 +606,19 @@ function saveGame() {
     const pieces = allPieces().filter(b => !b.plugin.merged).map(b =>
       [b.plugin.level, r1(b.position.x), r1(b.position.y), r1(b.angle * 100) / 100, r1(b.plugin.s), r1(Math.min(5, time - b.plugin.born))]);
     // 超線倒數和角色的落地時間也存起來，不然重新整理一次就能把快輸的倒數歸零
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ ver: SAVE_VER, score, current, next, topLevel, bestAtStart, dangerTime: r1(dangerTime), pieces }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ ver: SAVE_VER, mode, score, current, next, topLevel, bestAtStart, dangerTime: r1(dangerTime), pieces }));
   } catch (e) {}
 }
 function loadGame() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
     if (!s || s.ver !== SAVE_VER) return;
+    const m = MODES[s.mode] ? s.mode : 'normal';
+    const maxDrop = MODES[m].weights.length - 1;
     const ok = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
-    if (!ok(s.current, MAX_DROP_LEVEL) || !ok(s.next, MAX_DROP_LEVEL) || !ok(s.topLevel, LEVELS.length - 1) ||
+    if (!ok(s.current, maxDrop) || !ok(s.next, maxDrop) || !ok(s.topLevel, LEVELS.length - 1) ||
         !s.pieces.every(p => ok(p[0], LEVELS.length - 1) && p.slice(1).every(Number.isFinite))) return;
+    setMode(m);
     for (const [level, x, y, angle, sc, age] of s.pieces) {
       const b = makeBody(level, x, y, Math.min(1, sc || 1));
       Body.setAngle(b, angle);
@@ -650,6 +689,15 @@ function draw() {
 
   drawBoxBack();
   const pieces = allPieces();
+
+  // 困難模式標籤（左上角）
+  if (mode === 'hard') {
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.roundRect(0, 8, 58, 28, 14); ctx.fill();
+    ctx.font = '900 16px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
+    ctx.fillText(MODES[mode].name, 29, 23);
+  }
 
   // 瞄準
   if (!over) {
@@ -751,7 +799,8 @@ canvas.addEventListener('pointerdown', e => {
 canvas.addEventListener('pointerup', e => { aimX = toWorldX(e); drop(); });
 addEventListener('keydown', e => {
   // 結束畫面上按空白鍵是按「再玩一次」，不要順便丟出一顆
-  if (over || e.target.tagName === 'BUTTON') return;
+  if (e.key === 'Escape' && paused) closeModes();
+  if (over || paused || e.target.tagName === 'BUTTON') return;
   if (e.key === 'ArrowLeft') aimX -= 20;
   if (e.key === 'ArrowRight') aimX += 20;
   if (e.key === ' ' || e.key === 'Enter') drop();
@@ -759,14 +808,35 @@ addEventListener('keydown', e => {
   aimX = Math.max(0, Math.min(W, aimX));
 });
 $('restart').addEventListener('click', reset);
-$('restartBtn').addEventListener('click', reset);
+
+// 重新開始和換難度：先選難度，開著選單時遊戲暫停
+function openModes() {
+  paused = true;
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('cur', b.dataset.mode === mode));
+  $('over').classList.remove('show');
+  $('modes').classList.add('show');
+}
+function closeModes() {
+  paused = false;
+  last = performance.now();
+  $('modes').classList.remove('show');
+  if (over) $('over').classList.add('show');
+}
+$('restartBtn').addEventListener('click', openModes);
+$('changeMode').addEventListener('click', openModes);
+$('modeCancel').addEventListener('click', closeModes);
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+  setMode(b.dataset.mode);
+  closeModes();
+  reset();
+}));
 
 // ---- 主迴圈 ----
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(1 / 30, (now - last) / 1000);
   last = now;
-  if (!loading) update(dt);
+  if (!loading && !paused) update(dt);
   draw();
   requestAnimationFrame(loop);
 }
