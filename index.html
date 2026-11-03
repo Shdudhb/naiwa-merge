@@ -241,6 +241,8 @@ const PARTICLE_COLORS = ['#ffe25c', '#ffc93c', '#ffb39a', '#ffe08a', '#ff9b5c', 
 // 世界座標：盒子內部 x 0..W、y BOX_TOP..H；畫布左右各多留 PAD 畫玻璃壁
 const W = 400, H = 760;
 const BOX_TOP = 160, DROP_Y = 88, DANGER_Y = BOX_TOP;
+const OVER_MARGIN = 30;   // 角色要超出線這麼多才開始倒數，擦到線不算
+const OVER_TIME = 3;      // 超出線持續幾秒才輸
 const PAD = 22, CW = W + PAD * 2, CH = H + 24;
 const STEP_MS = 1000 / 120;
 
@@ -332,7 +334,7 @@ function beep(level, big) {
 // ---- 物理世界 ----
 const engine = Engine.create({ positionIterations: 10, velocityIterations: 8 });
 engine.gravity.y = 1.2;
-const wallOpts = { isStatic: true, friction: 0.05, restitution: 0.2 };
+const wallOpts = { isStatic: true, friction: 0.01, restitution: 0.2 };
 Composite.add(engine.world, [
   Bodies.rectangle(W / 2, H + 50, W * 2, 100, wallOpts),
   Bodies.rectangle(-50, H / 2 - 400, 100, H * 3, wallOpts),
@@ -342,7 +344,7 @@ Composite.add(engine.world, [
 function makeBody(level, x, y, startScale = 1) {
   const L = LEVELS[level];
   const b = Bodies.fromVertices(x, y, [L.verts], {
-    restitution: 0.2, friction: 0.02, frictionStatic: 0.05, frictionAir: 0.004,
+    restitution: 0.2, friction: 0.001, frictionStatic: 0.01, frictionAir: 0.004,
     density: 0.0012, slop: 0.03,
   });
   b.plugin = { level, born: time, merged: false, s: 1 };
@@ -475,9 +477,9 @@ function update(dt) {
   if (!over) {
     cooldown = Math.max(0, cooldown - dt);
     step(dt);
-    const danger = allPieces().some(b => time - b.plugin.born > 1.2 && b.bounds.min.y < DANGER_Y && b.speed < 2);
+    const danger = allPieces().some(b => time - b.plugin.born > 1.2 && b.bounds.min.y < DANGER_Y - OVER_MARGIN && b.speed < 2);
     dangerTime = danger ? dangerTime + dt : Math.max(0, dangerTime - dt * 2);
-    if (dangerTime > 2.5) gameOver();
+    if (dangerTime > OVER_TIME) gameOver();
   } else {
     step(dt * 0.4);
   }
