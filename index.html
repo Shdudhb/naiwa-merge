@@ -223,15 +223,15 @@ const { Engine, Bodies, Body, Composite, Events, Vertices } = Matter;
 
 // ---- 角色等級：由小到大；size 為等效直徑（世界座標） ----
 const LEVELS = [
-  { name: '奶豆', file: 'dou', size: 58 },
-  { name: '奶蛋', file: 'dan', size: 78 },
-  { name: '奶鼠', file: 'shu', size: 99 },
-  { name: '奶貓', file: 'mao', size: 123 },
-  { name: '奶雞', file: 'ji',  size: 149 },
-  { name: '奶茶', file: 'cha', size: 177 },
-  { name: '奶狗', file: 'gou', size: 207 },
-  { name: '奶粉', file: 'fen', size: 240 },
-  { name: '奶娃', file: 'wa',  size: 276 },
+  { name: '奶豆', file: 'dou', size: 54 },
+  { name: '奶蛋', file: 'dan', size: 72 },
+  { name: '奶鼠', file: 'shu', size: 92 },
+  { name: '奶貓', file: 'mao', size: 114 },
+  { name: '奶雞', file: 'ji',  size: 138 },
+  { name: '奶茶', file: 'cha', size: 164 },
+  { name: '奶狗', file: 'gou', size: 192 },
+  { name: '奶粉', file: 'fen', size: 222 },
+  { name: '奶娃', file: 'wa',  size: 256 },
 ];
 const MAX_DROP_LEVEL = 3;
 const MERGE_SCORE = [0, 2, 6, 12, 20, 30, 42, 56, 72];
@@ -284,8 +284,24 @@ function resize() {
 addEventListener('resize', resize);
 
 // iOS Safari 不理會 user-scalable=no：快速連點會放大畫面，面板就被切掉。這裡擋掉雙指縮放和連點放大
-['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
-document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+// 已經是放大狀態時（例如重新整理沿用了上次的放大）就不擋，讓玩家能用兩指捏回來
+const zoomed = () => window.visualViewport && visualViewport.scale > 1.01;
+['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => { if (!zoomed()) e.preventDefault(); }, { passive: false }));
+document.addEventListener('touchmove', e => { if (e.touches.length > 1 && !zoomed()) e.preventDefault(); }, { passive: false });
+
+// Safari 按重新整理會沿用上次的放大倍率和捲動位置：載入時改一下 viewport 設定再改回來，讓它重設成原尺寸
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+let lastReset = 0;
+function resetZoom() {
+  if (!zoomed() || Date.now() - lastReset < 1000) return;   // 重設不成功時不要一直重試
+  lastReset = Date.now();
+  const meta = document.querySelector('meta[name=viewport]');
+  const orig = meta.content;
+  meta.content = orig.replace('initial-scale=1', 'initial-scale=1.01');
+  setTimeout(() => { meta.content = orig; scrollTo(0, 0); resize(); }, 50);
+}
+addEventListener('pageshow', resetZoom);
+if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (zoomed()) resetZoom(); });
 let lastTouchEnd = 0;
 document.addEventListener('touchend', e => {
   const now = Date.now();
