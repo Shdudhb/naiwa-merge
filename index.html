@@ -23,7 +23,7 @@
     --num: "Fredoka", "Noto Sans TC", system-ui, sans-serif;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
   body {
     color: var(--ink);
     font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
@@ -47,7 +47,9 @@
   }
 
   .layout {
-    position: relative; height: 100%; height: 100dvh; max-width: 520px; margin: 0 auto;
+    /* 固定在可見範圍內：iOS Safari 的 100dvh 有時比實際畫面高，整頁會被捲動，上面的面板跑到狀態列底下 */
+    position: fixed; top: 0; left: 0; right: 0;
+    height: 100dvh; height: var(--app-h, 100dvh); max-width: 520px; margin: 0 auto;
     display: grid; gap: 10px;
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto minmax(0, 1fr) auto;
@@ -222,15 +224,15 @@ const { Engine, Bodies, Body, Composite, Events, Vertices } = Matter;
 
 // ---- 角色等級：由小到大；size 為等效直徑（世界座標） ----
 const LEVELS = [
-  { name: '奶豆', file: 'dou', size: 54 },
-  { name: '奶蛋', file: 'dan', size: 72 },
-  { name: '奶鼠', file: 'shu', size: 92 },
-  { name: '奶貓', file: 'mao', size: 114 },
-  { name: '奶雞', file: 'ji',  size: 138 },
-  { name: '奶茶', file: 'cha', size: 164 },
-  { name: '奶狗', file: 'gou', size: 192 },
-  { name: '奶粉', file: 'fen', size: 222 },
-  { name: '奶娃', file: 'wa',  size: 256 },
+  { name: '奶豆', file: 'dou', size: 58 },
+  { name: '奶蛋', file: 'dan', size: 78 },
+  { name: '奶鼠', file: 'shu', size: 99 },
+  { name: '奶貓', file: 'mao', size: 123 },
+  { name: '奶雞', file: 'ji',  size: 149 },
+  { name: '奶茶', file: 'cha', size: 177 },
+  { name: '奶狗', file: 'gou', size: 207 },
+  { name: '奶粉', file: 'fen', size: 240 },
+  { name: '奶娃', file: 'wa',  size: 276 },
 ];
 const MAX_DROP_LEVEL = 3;
 const MERGE_SCORE = [0, 2, 6, 12, 20, 30, 42, 56, 72];
@@ -268,6 +270,10 @@ const evoSteps = [...document.querySelectorAll('.evo .step')];
 // ---- 畫面縮放 ----
 let scale = 1, dpr = 1;
 function resize() {
+  // 用實際可見的高度排版，並把頁面捲回頂端
+  const vv = window.visualViewport;
+  document.documentElement.style.setProperty('--app-h', (vv ? vv.height : innerHeight) + 'px');
+  scrollTo(0, 0);
   const st = $('stage').getBoundingClientRect();
   scale = Math.min(st.width / CW, st.height / CH);
   dpr = Math.min(2, window.devicePixelRatio || 1);   // 手機上限 2 倍，省電也比較順
@@ -280,6 +286,7 @@ function resize() {
   document.body.style.setProperty('--table-y', r.top + (H + 4) * scale + 'px');
 }
 addEventListener('resize', resize);
+if (window.visualViewport) visualViewport.addEventListener('resize', resize);
 
 // ---- 音效 ----
 let audio;
@@ -327,6 +334,7 @@ const allPieces = () => Composite.allBodies(engine.world).filter(b => b.plugin &
 
 // ---- 遊戲狀態 ----
 let particles, texts, score, current, next, aimX, cooldown, dangerTime, over, time, banner, mergeQueue, topLevel, acc;
+let bestAtStart = 0, overTimer = 0;
 let best = 0;
 try { best = +localStorage.getItem('naiwa-best') || 0; } catch (e) {}
 $('best').textContent = best;
@@ -342,6 +350,8 @@ function reset() {
   for (const b of allPieces()) Composite.remove(engine.world, b);
   particles = []; texts = []; mergeQueue = [];
   score = 0; time = 0; dangerTime = 0; cooldown = 0; over = false; banner = null; acc = 0;
+  clearTimeout(overTimer);   // 輸了馬上重開時，不要讓結束畫面跳到新局上
+  bestAtStart = best;
   topLevel = 0; aimX = W / 2;
   current = 0; next = randLevel();
   updateHud();
@@ -375,6 +385,7 @@ function drop() {
 
 // ---- 合成 ----
 function onCollide(e) {
+  if (over) return;   // 輸了之後角色還會滑動，但不再合成加分
   for (const { bodyA: a, bodyB: b } of e.pairs) {
     const pa = a.plugin, pb = b.plugin;
     if (!pa || !pb || pa.level === undefined || pb.level === undefined) continue;
@@ -459,8 +470,8 @@ function update(dt) {
 function gameOver() {
   over = true;
   $('finalScore').textContent = score;
-  $('finalSub').textContent = score >= best ? '新紀錄！' : `最高分 ${best}`;
-  setTimeout(() => $('over').classList.add('show'), 600);
+  $('finalSub').textContent = score > bestAtStart && score > 0 ? '新紀錄！' : `最高分 ${best}`;
+  overTimer = setTimeout(() => $('over').classList.add('show'), 600);
 }
 
 // ---- 繪製 ----
@@ -619,6 +630,8 @@ canvas.addEventListener('pointerdown', e => {
 });
 canvas.addEventListener('pointerup', e => { aimX = toWorldX(e); drop(); });
 addEventListener('keydown', e => {
+  // 結束畫面上按空白鍵是按「再玩一次」，不要順便丟出一顆
+  if (over || e.target.tagName === 'BUTTON') return;
   if (e.key === 'ArrowLeft') aimX -= 20;
   if (e.key === 'ArrowRight') aimX += 20;
   if (e.key === ' ' || e.key === 'Enter') drop();
