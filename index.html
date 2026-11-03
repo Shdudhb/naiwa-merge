@@ -120,8 +120,8 @@
     .next img { width: 68px; height: 68px; }
     .evo { padding: 14px 18px; }
     .evo h3 { display: block; margin-bottom: 8px; }
-    .evo .list { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px 2px; }
-    .evo img { width: 36px; height: 36px; }
+    .evo .list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 4px; }
+    .evo img { width: 42px; height: 42px; }
     .evo span { font-size: 11px; }
   }
 
@@ -259,27 +259,26 @@
 </div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
-<script src="shapes.js?v=2"></script><!-- 加角色時改版本號，免得瀏覽器用到舊的形狀檔 -->
+<script src="shapes.js"></script>
 <script>
 const { Engine, Bodies, Body, Composite, Events, Vertices } = Matter;
 
 // ---- 角色等級：由小到大；size 為等效直徑（世界座標） ----
 const LEVELS = [
-  { name: '奶屎', file: 'shi', size: 54 },
-  { name: '奶豆', file: 'dou', size: 69 },
-  { name: '奶蛋', file: 'dan', size: 86 },
-  { name: '奶鼠', file: 'shu', size: 105 },
-  { name: '奶貓', file: 'mao', size: 126 },
-  { name: '奶雞', file: 'ji',  size: 149 },
-  { name: '奶茶', file: 'cha', size: 174 },
-  { name: '奶狗', file: 'gou', size: 200 },
-  { name: '奶粉', file: 'fen', size: 227 },
+  { name: '奶豆', file: 'dou', size: 54 },
+  { name: '奶蛋', file: 'dan', size: 72 },
+  { name: '奶鼠', file: 'shu', size: 92 },
+  { name: '奶貓', file: 'mao', size: 114 },
+  { name: '奶雞', file: 'ji',  size: 138 },
+  { name: '奶茶', file: 'cha', size: 164 },
+  { name: '奶狗', file: 'gou', size: 192 },
+  { name: '奶粉', file: 'fen', size: 222 },
   { name: '奶娃', file: 'wa',  size: 256 },
 ];
 const MAX_DROP_LEVEL = 3;
-const MERGE_SCORE = [0, 1, 2, 6, 12, 20, 30, 42, 56, 72];
+const MERGE_SCORE = [0, 2, 6, 12, 20, 30, 42, 56, 72];
 const WAWA_BONUS = 300;
-const PARTICLE_COLORS = ['#e8c06a', '#ffe25c', '#ffc93c', '#ffb39a', '#ffe08a', '#ff9b5c', '#a3c96b', '#e8b46a', '#ff9fb8', '#ffbf2e'];
+const PARTICLE_COLORS = ['#ffe25c', '#ffc93c', '#ffb39a', '#ffe08a', '#ff9b5c', '#a3c96b', '#e8b46a', '#ff9fb8', '#ffbf2e'];
 
 // 世界座標：盒子內部 x 0..W、y BOX_TOP..H；畫布左右各多留 PAD 畫玻璃壁
 const W = 400, H = 760;
